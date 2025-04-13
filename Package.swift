@@ -2,19 +2,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "BetterSegmentedControl",
+    name: "ScrollableSegmentedControl",
     platforms: [
         .iOS(.v9),
     ],
     products: [
         .library(
-            name: "BetterSegmentedControl",
-            targets: ["BetterSegmentedControl"]
+            name: "ScrollableSegmentedControl",
+            targets: ["ScrollableSegmentedControl"]
         )
     ],
     targets: [
         .target(
-            name: "BetterSegmentedControl",
+            name: "ScrollableSegmentedControl",
             path: "Pod/Classes"
         )
     ],

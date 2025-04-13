@@ -31,6 +31,30 @@ import UIKit
         }
     }
     
+    /// The scroll view that contains the segmented control when scrollEnabled is true.
+    public private(set) lazy var scrollView: UIScrollView = {
+        let scroll = UIScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.bounces = true
+        return scroll
+    }()
+    
+    /// Provides access to the view that should be added to the view hierarchy.
+    /// If scrollEnabled is true, returns the scrollView. Otherwise, returns self.
+    public var view: UIView {
+        if scrollEnabled {
+            return scrollView
+        }
+        return self
+    }
+    
+    /// Whether the segmented control is wrapped in a scroll view
+    public private(set) var scrollEnabled: Bool = false
+    
+    /// Whether the segmented control should stretch to fit the superview width
+    public private(set) var stretchToFitSuperview: Bool = false
+    
     /// The currently selected index indicator view.
     public let indicatorView = IndicatorView()
     
@@ -122,10 +146,16 @@ import UIKit
         
         let singleSegmentWidth = totalInsetSize + max(maxSegmentIntrinsicContentSizeWidth, Constants.minimumSegmentIntrinsicContentSizeWidth) + segmentPadding
         
-        let width = ceil(CGFloat(segments.count) * singleSegmentWidth)
-        let height = ceil(max(maxSegmentIntrinsicContentSizeHeight + totalInsetSize, Constants.minimumIntrinsicContentSizeHeight))
+        let calculatedWidth = ceil(CGFloat(segments.count) * singleSegmentWidth)
         
-        return .init(width: width, height: height)
+        let superviewWidth = self.superview?.bounds.width ?? UIScreen.main.bounds.width
+        
+        let finalWidth = stretchToFitSuperview && calculatedWidth < superviewWidth ? superviewWidth : calculatedWidth
+        
+        let height = ceil(max(maxSegmentIntrinsicContentSizeHeight + totalInsetSize,
+                              Constants.minimumIntrinsicContentSizeHeight))
+        
+        return .init(width: finalWidth, height: height)
     }
     
     // Private
@@ -134,7 +164,7 @@ import UIKit
     private let pointerInteractionViewsContainerView = UIView()
     
     private var initialIndicatorViewFrame: CGRect?
-
+    
     private var tapGestureRecognizer: UITapGestureRecognizer!
     private var panGestureRecognizer: UIPanGestureRecognizer!
     
@@ -175,10 +205,14 @@ import UIKit
     ///   - index: The initially selected index. Passing `BetterSegmentedControl.noSegment` sets the index to `-1` and hides the
     ///   indicator view. Passing an index beyond the segment indices will set the index to `0`.
     ///   - options: An array of customization options to style and change the behavior of the control.
+    ///   - scrollEnabled: Whether the control should be wrapped in a scroll view. Defaults to `false`.
+    ///   - stretchToFitSuperview: Whether the control should stretch to fit the superview width. Defaults to `true`.
     public init(frame: CGRect,
                 segments: [BetterSegmentedControlSegment],
                 index: Int = 0,
-                options: [Option]? = nil) {
+                options: [Option]? = nil,
+                scrollEnabled: Bool = false,
+                stretchToFitSuperview: Bool = true) {
         if segments.indices.contains(index) || index == Self.noSegment {
             self.index = index
         } else {
@@ -186,6 +220,8 @@ import UIKit
         }
         
         self.segments = segments
+        self.scrollEnabled = scrollEnabled
+        self.stretchToFitSuperview = stretchToFitSuperview
         
         super.init(frame: frame)
         
@@ -198,6 +234,10 @@ import UIKit
         setOptions(BetterSegmentedControl.defaultOptions)
         if let options = options {
             setOptions(options)
+        }
+        
+        if scrollEnabled {
+            setupScrollView()
         }
     }
     
@@ -270,7 +310,7 @@ import UIKit
             pointerInteractionViews[index].frame = frame
         }
     }
-
+    
     // MARK: Index Setting
     /// Sets the control's index.
     ///
@@ -339,6 +379,11 @@ import UIKit
                 animationDuration = value
             case let .animationSpringDamping(value):
                 animationSpringDamping = value
+            case let .scrollEnabled(value):
+                scrollEnabled = value
+            case let .stretchToFitSuperview(value):
+                stretchToFitSuperview = value
+                invalidateIntrinsicContentSize()
             }
         }
     }
@@ -350,8 +395,8 @@ import UIKit
                        delay: 0.0,
                        options: [.beginFromCurrentState, .curveEaseIn],
                        animations: { () -> Void in
-                        self.selectedSegmentViewsContainerView.alpha = isVisible ? 1.0 : 0.0
-                        self.indicatorView.alpha = isVisible ? 1.0 : 0.0
+            self.selectedSegmentViewsContainerView.alpha = isVisible ? 1.0 : 0.0
+            self.indicatorView.alpha = isVisible ? 1.0 : 0.0
         }, completion: { finished -> Void in
             completion?()
         })
@@ -370,8 +415,8 @@ import UIKit
                            initialSpringVelocity: 0.0,
                            options: [.beginFromCurrentState, .curveEaseOut],
                            animations: { () -> Void in
-                            self.indicatorView.frame = self.normalSegmentViews[self.index].frame
-                            self.layoutIfNeeded()
+                self.indicatorView.frame = self.normalSegmentViews[self.index].frame
+                self.layoutIfNeeded()
             }, completion: { finished -> Void in
                 completion()
             })
@@ -489,6 +534,41 @@ import UIKit
             setIndex(closestIndex(toPoint: indicatorView.center), shouldSendValueChangedEvent: true)
         default: break
         }
+    }
+    
+    // MARK: Scrolling
+    
+    /// Setup the scroll view to contain this control
+    private func setupScrollView() {
+        scrollView.addSubview(self)
+        
+        NSLayoutConstraint.activate([
+            self.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            self.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            self.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            self.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            self.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor)
+        ])
+    }
+    
+    /// Scrolls to the right edge of the segmented control
+    public func scrollToRight(animated: Bool = false) {
+        guard scrollEnabled else { return }
+        
+        let contentWidth = scrollView.contentSize.width
+        let scrollViewWidth = scrollView.bounds.width
+
+        guard contentWidth > scrollViewWidth else { return }
+        let rightOffset = CGPoint(x: contentWidth - scrollViewWidth, y: 0)
+        scrollView.setContentOffset(rightOffset, animated: animated)
+    }
+    
+    /// Scrolls to make the segment at the given index visible
+    public func scrollToSegment(at index: Int, animated: Bool = true) {
+        guard scrollEnabled, segments.indices.contains(index) else { return }
+        
+        let segmentFrame = frameForElement(atIndex: index)
+        scrollView.scrollRectToVisible(segmentFrame, animated: animated)
     }
 }
 

@@ -30,6 +30,8 @@ public extension BetterSegmentedControl {
         /* Other */
         case backgroundColor(UIColor)
         case cornerRadius(CGFloat)
+        case scrollEnabled(Bool)
+        case stretchToFitSuperview(Bool)
     }
 }
 
